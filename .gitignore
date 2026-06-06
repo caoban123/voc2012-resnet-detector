@@ -1,5 +1,19 @@
+# Block local raw dataset folders (Do NOT push gigabytes of images to GitHub)
 pascal-voc-2012/
+data/
+yolo_data/
+
+# Block PyTorch deep learning weights and full checkpoints
 *.pt
 *.pth
+
+# Block TensorBoard telemetry logs
 runs/
+
+# Block runtime caches and IDE configurations
 __pycache__/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.log
+.DS_Store
