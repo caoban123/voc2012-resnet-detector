@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -17,11 +18,13 @@ def cxcywh_to_xyxy(boxes, img_size=224):
     x2 = (cx + w / 2) * img_size
     y2 = (cy + h / 2) * img_size
     return torch.stack([x1, y1, x2, y2], dim=1).to(boxes.device)
+
 def train_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     img_dir = "D:\\football\\pascal-voc-2012\\train\\images"
     label_dir = "D:\\football\\pascal-voc-2012\\train\\labels"
+    CHECKPOINT_PATH = "voc_checkpoint_last.pt"  # File checkpoint dùng để khôi phục
 
     transform = Compose([
         Resize((224, 224)),
@@ -40,12 +43,32 @@ def train_model():
     writer = SummaryWriter(log_dir="runs/voc2012_experiment")
     metric = MeanAveragePrecision(iou_type="bbox")
 
+    # Cấu hình giá trị mặc định ban đầu
+    start_epoch = 0
     best_map = 0.0
     epochs = 100
 
+    # 🛠️ CHỖ THAY ĐỔI 1: LOGIC KIỂM TRA VÀ KHÔI PHỤC CHECKPOINT
+    if os.path.exists(CHECKPOINT_PATH):
+        print(f"\n=== TÌM THẤY CHECKPOINT CŨ: {CHECKPOINT_PATH} ===")
+        checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
+        
+        # Nạp lại trạng thái weights của mạng và optimizer
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        start_epoch = checkpoint['epoch']  # Đọc vị trí epoch tiếp theo cần chạy
+        best_map = checkpoint.get('best_map', 0.0)  # Giữ lại kỷ lục mAP cũ
+        
+        print(f"-> Khôi phục thành công! Sẽ tiếp tục chạy từ Epoch [{start_epoch + 1}]")
+        print(f"-> Kỷ lục mAP tốt nhất đã ghi nhận trước đó: {best_map:.4f}\n")
+    else:
+        print("\n=== BẮT ĐẦU TRAIN MỚI: Không tìm thấy checkpoint cũ ===\n")
+
     model.train()
 
-    for epoch in range(epochs):
+    # 🛠️ CHỖ THAY ĐỔI 2: SỬA range(epochs) THÀNH range(start_epoch, epochs)
+    for epoch in range(start_epoch, epochs):
         running_loss = 0.0
         progress_bar = tqdm(dataloader, colour="green")
 
@@ -88,7 +111,6 @@ def train_model():
                 m = mask_cpu[i]
                 
                 if m.sum() > 0:
-                   
                     valid_classes = p_classes_cpu[i][m]
                     scores = torch.softmax(valid_classes, dim=1)
 
