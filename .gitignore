@@ -1,0 +1,5 @@
+pascal-voc-2012/
+*.pt
+*.pth
+runs/
+__pycache__/
