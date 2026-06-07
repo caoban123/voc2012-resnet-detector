@@ -105,7 +105,7 @@ def calculate_accuracy(dataset_dir, checkpoint_path, batch_size=16):
     print("="*40)
 
 if __name__ == "__main__":
-    DATASET_PATH = "D:\\football\\pascal-voc-2012\\train" 
+    DATASET_PATH = "D:\\football\\pascal-voc-2012\\val" 
     CHECKPOINT = "voc_checkpoint_best.pt"
     
     calculate_accuracy(DATASET_PATH, CHECKPOINT)

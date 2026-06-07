@@ -20,7 +20,7 @@ def cxcywh_to_xyxy_numpy(boxes, orig_w, orig_h):
     ymax = (cy + h / 2) * orig_h
     return np.stack([xmin, ymin, xmax, ymax], axis=1).astype(int)
 
-def predict_image(image_path, checkpoint_path, output_path="result.jpg", conf_threshold=0.65):
+def predict_image(image_path, checkpoint_path, output_path="result.jpg", conf_threshold=0.95):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -91,8 +91,30 @@ def predict_image(image_path, checkpoint_path, output_path="result.jpg", conf_th
     cv2.imwrite(output_path, original_img)
     print(f"\nSaved visualization result ({drawn_objects} objects) to: {output_path}")
 
-if __name__ == "__main__":
-    test_img = "test_match.jpg"       
-    weight_file = "voc_checkpoint_best.pt" 
+# if __name__ == "__main__":
+#     test_img = "D:\\football\\pascal-voc-2012\\val\\images\\VOC2007_000008.jpg"       
+#     weight_file = "D:\\football\\voc_checkpoint_best.pt" 
     
-    predict_image(test_img, weight_file, conf_threshold=0.65)
+#     predict_image(test_img, weight_file, conf_threshold=0.99)
+import glob
+import os
+
+if __name__ == "__main__":
+    image_dir = "D:\\football\\pascal-voc-2012\\val\\images"
+    weight_file = "D:\\football\\voc_checkpoint_best.pt"
+    
+    search_path = os.path.join(image_dir, "*.jpg")
+    image_files = glob.glob(search_path)
+    
+    print(f"Tìm thấy {len(image_files)} hình ảnh.")
+    
+    for img_path in image_files:
+        print(f"\nĐang xử lý: {os.path.basename(img_path)}")
+        
+        # Chạy dự đoán và hiển thị ảnh
+        predict_image(img_path, weight_file, conf_threshold=0.99)
+        
+        # Dừng chương trình ở Terminal, chờ bạn nhấn Enter
+        input("Nhấn [ENTER] trên bàn phím để chuyển sang ảnh tiếp theo...")
+        
+    print("Đã xem hết tất cả các ảnh!")
