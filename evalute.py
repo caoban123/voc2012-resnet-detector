@@ -1,38 +1,71 @@
+import os
 import torch
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Resize
+from torchvision.ops import nms  # 🌟 Bổ sung NMS để dọn dẹp dự đoán khi đánh giá
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 from tqdm import tqdm
 
 from src.datasets import VOC2012Dataset
 from src.models import VOC2012Model
 
-def cxcywh_to_xyxy(boxes, img_size=224):
-    cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-    x1 = (cx - w / 2) * img_size
-    y1 = (cy - h / 2) * img_size
-    x2 = (cx + w / 2) * img_size
-    y2 = (cy + h / 2) * img_size
-    return torch.stack([x1, y1, x2, y2], dim=1)
+NUM_CLASSES = 20
+NUM_ANCHORS = 3
+GRID_SIZE = 7
+IMG_SIZE = 224
+
+# Bộ 3 Anchor mẫu bắt buộc phải đồng nhất với file train
+ANCHORS = torch.tensor([
+    [0.15, 0.22],
+    [0.45, 0.50],
+    [0.78, 0.82]
+])
+
+def decode_boxes(pred_boxes, anchors, grid_size=GRID_SIZE):
+    """Giải mã ma trận đặc trưng từ dạng offset về tọa độ góc pixel [x1, y1, x2, y2]"""
+    device = pred_boxes.device
+    batch_size, grid_h, grid_w, _, _ = pred_boxes.shape
+
+    c_y, c_x = torch.meshgrid(torch.arange(grid_h), torch.arange(grid_w), indexing='ij')
+    c_x = c_x.view(1, grid_h, grid_w, 1).to(device)
+    c_y = c_y.view(1, grid_h, grid_w, 1).to(device)
+    anchors = anchors.view(1, 1, 1, NUM_ANCHORS, 2).to(device)
+
+    bx = (torch.sigmoid(pred_boxes[..., 0]) + c_x) / grid_w
+    by = (torch.sigmoid(pred_boxes[..., 1]) + c_y) / grid_h
+    bw = anchors[..., 0] * torch.exp(pred_boxes[..., 2].clamp(-4, 4))
+    bh = anchors[..., 1] * torch.exp(pred_boxes[..., 3].clamp(-4, 4))
+
+    x1 = (bx - bw / 2) * IMG_SIZE
+    y1 = (by - bh / 2) * IMG_SIZE
+    x2 = (bx + bw / 2) * IMG_SIZE
+    y2 = (by + bh / 2) * IMG_SIZE
+
+    return torch.stack([x1, y1, x2, y2], dim=-1)
 
 def calculate_accuracy(dataset_dir, checkpoint_path, batch_size=16):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device for evaluation: {device}")
 
-    # 1. Prepare Dataset
+    # 1. Prepare Dataset (Đồng bộ khâu preprocessing giống file train)
     img_dir = f"{dataset_dir}/images"
     label_dir = f"{dataset_dir}/labels"
 
     transform = Compose([
-        ToTensor(),
-        Resize((224, 224))
+        ToTensor(),                 # Đưa ToTensor lên trước nếu chạy local từ OpenCV/PIL
+        Resize((IMG_SIZE, IMG_SIZE))
     ])
 
     dataset = VOC2012Dataset(img_dir, label_dir, transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
 
-    # 2. Load Model
-    model = VOC2012Model(num_classes=20, max_objects=5).to(device)
+    # 2. Load Model với cấu hình Anchor mới
+    model = VOC2012Model(num_classes=NUM_CLASSES, num_anchors=NUM_ANCHORS).to(device)
+    
+    if not os.path.exists(checkpoint_path):
+        print(f"Lỗi: Không tìm thấy file checkpoint tại {checkpoint_path}")
+        return
+
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -50,43 +83,55 @@ def calculate_accuracy(dataset_dir, checkpoint_path, batch_size=16):
 
             outputs = model(images)
             pred_boxes = outputs['pred_boxes']
+            pred_conf = outputs['pred_conf']
             pred_classes = outputs['pred_classes']
 
-            mask = true_labels >= 0
+            # Giải mã toàn bộ ma trận dự đoán sang pixel thực trên CPU
+            decoded_boxes = decode_boxes(pred_boxes, ANCHORS).cpu()
+            p_conf = torch.sigmoid(pred_conf).cpu()
+            p_cls = pred_classes.cpu()
+            
+            t_boxes_cpu = true_boxes.cpu()
+            t_labels_cpu = true_labels.cpu()
 
             preds_fmt = []
             targets_fmt = []
             
-            p_boxes_cpu = pred_boxes.cpu()
-            p_classes_cpu = pred_classes.cpu()
-            t_boxes_cpu = true_boxes.cpu()
-            t_labels_cpu = true_labels.cpu()
-            mask_cpu = mask.cpu()
-
             for i in range(len(images)):
-                m = mask_cpu[i]
-                if m.sum() > 0:
-                    valid_classes = p_classes_cpu[i][m]
-                    scores = torch.softmax(valid_classes, dim=1)
+                # Làm phẳng lưới 7x7x3 thành danh sách 147 hộp đơn lẻ
+                b_boxes = decoded_boxes[i].view(-1, 4)
+                b_confs = p_conf[i].view(-1)
+                b_cls = p_cls[i].view(-1, NUM_CLASSES)
 
-                    pred_boxes_scaled = cxcywh_to_xyxy(p_boxes_cpu[i][m])
-                    true_boxes_scaled = cxcywh_to_xyxy(t_boxes_cpu[i][m])
+                # Tính điểm class_score và nhân chéo tính điểm tự tin final_score
+                box_scores, box_labels = torch.softmax(b_cls, dim=-1).max(dim=-1)
+                final_scores = b_confs * box_scores
 
-                    preds_fmt.append({
-                        "boxes": pred_boxes_scaled,
-                        "scores": scores.max(dim=1).values,
-                        "labels": valid_classes.argmax(dim=1)
-                    })
-                    targets_fmt.append({
-                        "boxes": true_boxes_scaled,
-                        "labels": t_labels_cpu[i][m]
-                    })
+                # Bộ lọc thô lọc bỏ hộp rác độ tự tin thấp (> 0.1)
+                mask = final_scores > 0.1
+                if mask.sum() > 0:
+                    fb = b_boxes[mask]
+                    fs = final_scores[mask]
+                    fl = box_labels[mask]
+                    
+                    # 🌟 ÁP DỤNG NMS ĐỂ LỌC TRÙNG KHI ĐÁNH GIÁ MTRIC MAP
+                    keep = nms(fb, fs, iou_threshold=0.45)
+                    preds_fmt.append({"boxes": fb[keep], "scores": fs[keep], "labels": fl[keep]})
                 else:
                     preds_fmt.append({
                         "boxes": torch.empty((0, 4), dtype=torch.float32),
                         "scores": torch.empty((0,), dtype=torch.float32),
                         "labels": torch.empty((0,), dtype=torch.int64)
                     })
+
+                # Chuyển đổi nhãn thật cxcywh về xyxy pixel 224 để so khớp
+                valid = t_labels_cpu[i] >= 0
+                if valid.sum() > 0:
+                    cx, cy, w, h = t_boxes_cpu[i][valid].T
+                    xyxy = torch.stack([(cx - w/2)*IMG_SIZE, (cy - h/2)*IMG_SIZE,
+                                         (cx + w/2)*IMG_SIZE, (cy + h/2)*IMG_SIZE], dim=1)
+                    targets_fmt.append({"boxes": xyxy, "labels": t_labels_cpu[i][valid].long()})
+                else:
                     targets_fmt.append({
                         "boxes": torch.empty((0, 4), dtype=torch.float32),
                         "labels": torch.empty((0,), dtype=torch.int64)
@@ -105,7 +150,8 @@ def calculate_accuracy(dataset_dir, checkpoint_path, batch_size=16):
     print("="*40)
 
 if __name__ == "__main__":
+    # Thay đổi đường dẫn đến file trọng số ResNet-50 mới của bạn
     DATASET_PATH = "D:\\football\\pascal-voc-2012\\val" 
-    CHECKPOINT = "voc_checkpoint_best.pt"
+    CHECKPOINT = "D:\\football\\voc_resnet50_anchor_best.pt"
     
     calculate_accuracy(DATASET_PATH, CHECKPOINT)

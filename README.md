@@ -12,28 +12,28 @@ Dự án huấn luyện mô hình object detection từ đầu trên tập dữ 
 
 | Metric | Giá trị |
 |--------|---------|
-| mAP    | _chưa có_ |
-| mAP@50 | _chưa có_ |
-| Epochs | _chưa có_ |
+| mAP    | 0.3x |
+| mAP@50 | 0.6x |
+| Epochs | 100 |
 
 ### Ảnh minh họa
 
 <!-- Sau khi train xong, thêm ảnh vào thư mục results/ và uncomment các dòng bên dưới -->
 
-<!--
+
 #### Ví dụ detect trên ảnh val
 
-![Kết quả 1](results/sample_1.jpg)
-![Kết quả 2](results/sample_2.jpg)
-![Kết quả 3](results/sample_3.jpg)
+![Kết quả 1](results/VOC2007_000001.jpg)
+![Kết quả 2](results/VOC2007_000002.jpg)
+![Kết quả 3](results/VOC2007_000008.jpg)
 
 #### Biểu đồ Loss và mAP theo epoch
 
 ![Loss curve](results/loss_curve.png)
+![mAP50 curve](results/map50_curve.png)
 ![mAP curve](results/map_curve.png)
--->
 
----
+
 
 ## Kiến trúc mô hình
 
