@@ -139,9 +139,12 @@ def format_predictions(decoded_boxes, pred_conf, pred_classes, true_boxes, true_
 def train_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    img_dir   = "D:\\football\\pascal-voc-2012\\train\\images"
-    label_dir = "D:\\football\\pascal-voc-2012\\train\\labels"
-    CHECKPOINT_PATH = "voc_checkpoint_best.pt"
+    # img_dir   = "D:\\football\\pascal-voc-2012\\train\\images"
+    # label_dir = "D:\\football\\pascal-voc-2012\\train\\labels"
+    img_dir   = "/kaggle/input/datasets/banuprasadb/pascal-voc-2012/train/images"
+    label_dir = "/kaggle/input/datasets/banuprasadb/pascal-voc-2012/train/labels"
+    # CHECKPOINT_PATH = "voc_checkpoint_best.pt"
+    CHECKPOINT_PATH = "/kaggle/working/voc_checkpoint_best.pt"
 
     transform = Compose([Resize((IMG_SIZE, IMG_SIZE)), ToTensor()])
     dataset   = VOC2012Dataset(img_dir, label_dir, transform)
@@ -246,11 +249,13 @@ def train_model():
             'optimizer_state_dict': optimizer.state_dict(),
             'best_map':             best_map
         }
-        torch.save(checkpoint, "voc_resnet50_anchor_last.pt")
+        # torch.save(checkpoint, "voc_resnet50_anchor_last.pt")
+        
 
         if epoch_map > best_map:
             best_map = epoch_map
-            torch.save(checkpoint, "voc_resnet50_anchor_best.pt")
+            # torch.save(checkpoint, "voc_resnet50_anchor_best.pt")
+            torch.save(checkpoint, "/kaggle/working/voc_resnet50_anchor_best.pt")
             print(f"   ✓ Best mAP: {best_map:.4f}")
 
     writer.close()
